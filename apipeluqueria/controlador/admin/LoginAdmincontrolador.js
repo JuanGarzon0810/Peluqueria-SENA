@@ -20,7 +20,13 @@ class LoginAdminControlador {
         return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
       }
 
-      res.json({ mensaje: 'Inicio de sesión exitoso', usuario: user });
+      if (user.rol !== 'admin') {
+      return res.status(403).json({ error: 'No tienes permisos de administrador' });
+      }
+
+      const { contrasena, ...usuarioSinClave } = user;
+      res.json({ mensaje: 'Inicio de sesión exitoso', usuario: usuarioSinClave });
+
     } catch (err) {
       res.status(500).json({ error: `Hubo un error al validar las credenciales: ${err.message}` });
     }

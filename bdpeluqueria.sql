@@ -3,9 +3,9 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1
--- Tiempo de generación: 30-09-2026 a las 04:56:03
+-- Tiempo de generación: 07-10-2026 a las 04:19:04
 -- Versión del servidor: 10.4.32-MariaDB
--- Versión de PHP: 8.0.30
+-- Versión de PHP: 8.2.12
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -24,6 +24,28 @@ SET time_zone = "+00:00";
 -- --------------------------------------------------------
 
 --
+-- Estructura de tabla para la tabla `citas`
+--
+
+CREATE TABLE `citas` (
+  `idcita` int(11) NOT NULL,
+  `idcliente` int(11) NOT NULL,
+  `idhorario` int(11) NOT NULL,
+  `estado` varchar(20) NOT NULL DEFAULT 'ACTIVA',
+  `idhorario_activo` int(11) GENERATED ALWAYS AS (if(`estado` = 'ACTIVA',`idhorario`,NULL)) VIRTUAL
+) ;
+
+--
+-- Volcado de datos para la tabla `citas`
+--
+
+INSERT INTO `citas` (`idcita`, `idcliente`, `idhorario`, `estado`) VALUES
+(1, 1, 1, 'ACTIVA'),
+(2, 2, 2, 'ACTIVA');
+
+-- --------------------------------------------------------
+
+--
 -- Estructura de tabla para la tabla `clientes`
 --
 
@@ -37,15 +59,15 @@ CREATE TABLE `clientes` (
   `correo` varchar(250) NOT NULL,
   `contrasena` varchar(255) NOT NULL,
   `estado` varchar(10) NOT NULL DEFAULT 'Activo'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ;
 
 --
 -- Volcado de datos para la tabla `clientes`
 --
 
 INSERT INTO `clientes` (`idcliente`, `tipoDocumento`, `numeroDocumento`, `nombres`, `direccion`, `telefono`, `correo`, `contrasena`, `estado`) VALUES
-(2, 'CC', '12345678', 'Juan Perez', 'Calle 10 # 20-30', '3001234567', 'juan123@gmail.com', '$2b$10$NZPHD1IVzhvm.QTMABpfJ.CHLu33OvLPC8jheSSuv05jDVHvaWWtC', 'Activo'),
-(4, 'CE', '25865254', 'David Tellez', 'cal 1 # 2 4', '3131234569', 'Elmejor@gmsil.com', '$2b$10$.8C.0PIUl/W3QHx97BXMlefC6hZXubO5jLyxS6knAKq60VFu0/ORK', 'Activo');
+(1, 'CC', '12345678', 'Juan Perez', 'Calle 10 # 20-30', '3001234567', 'juan123@gmail.com', '$2b$10$NZPHD1IVzhvm.QTMABpfJ.CHLu33OvLPC8jheSSuv05jDVHvaWWtC', 'Activo'),
+(2, 'CE', '25865254', 'David Tellez', 'cal 1 # 2 4', '3131234569', 'Elmejor@gmail.com', '$2b$10$.8C.0PIUl/W3QHx97BXMlefC6hZXubO5jLyxS6knAKq60VFu0/ORK', 'Activo');
 
 -- --------------------------------------------------------
 
@@ -60,14 +82,20 @@ CREATE TABLE `horarios` (
   `horaInicio` time NOT NULL,
   `horaFin` time NOT NULL,
   `estado` varchar(20) NOT NULL DEFAULT 'DISPONIBLE'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ;
 
 --
 -- Volcado de datos para la tabla `horarios`
 --
 
 INSERT INTO `horarios` (`idhorario`, `idtrabajador`, `fecha`, `horaInicio`, `horaFin`, `estado`) VALUES
-(1, 1, '2026-09-28', '08:00:00', '10:00:00', 'DISPONIBLE');
+(1, 1, '2026-09-28', '08:00:00', '10:00:00', 'RESERVADO'),
+(2, 2, '2026-09-28', '08:00:00', '10:00:00', 'RESERVADO'),
+(3, 3, '2026-09-28', '08:00:00', '10:00:00', 'DISPONIBLE'),
+(4, 4, '2026-09-28', '08:00:00', '10:00:00', 'DISPONIBLE'),
+(9, 1, '2026-10-20', '08:00:00', '10:00:00', 'DISPONIBLE'),
+(10, 1, '2026-10-20', '10:00:00', '12:00:00', 'DISPONIBLE'),
+(11, 2, '2026-10-20', '08:00:00', '10:00:00', 'DISPONIBLE');
 
 -- --------------------------------------------------------
 
@@ -86,7 +114,7 @@ CREATE TABLE `trabajadores` (
   `contrasena` varchar(255) NOT NULL,
   `rol` varchar(20) NOT NULL,
   `estado` varchar(10) NOT NULL DEFAULT 'Activo'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ;
 
 --
 -- Volcado de datos para la tabla `trabajadores`
@@ -94,58 +122,85 @@ CREATE TABLE `trabajadores` (
 
 INSERT INTO `trabajadores` (`idtrabajador`, `tipoDocumento`, `numeroDocumento`, `nombres`, `direccion`, `telefono`, `correo`, `contrasena`, `rol`, `estado`) VALUES
 (1, 'CC', '1098765433', 'Pedro Trabajador', 'Calle 15 # 20-30', '3001234568', 'pedrotrabajador@gmail.com', '$2b$10$UpFxhnRGoeYF7L0OOWvr1.lNEHcDVds8Bg1tYJvkprcfKnjKll1XC', 'trabajador', 'Activo'),
-(2, 'CC', '1098765433', 'Pedro Trabajador', 'Calle 15 # 20-30', '3001234568', 'pedrotrabajador@gmail.com', '$2b$10$UpFxhnRGoeYF7L0OOWvr1.lNEHcDVds8Bg1tYJvkprcfKnjKll1XC', 'trabajador', 'Activo'),
-(3, 'CC', '1070971265', 'Guiilermo Ortiz', 'cal 1 # 2 3', '3131234567', '123@gmsil.com', '$2b$10$ZSP8AO5tx.qz06011YBoE..tye1.OrFdHfYx03WFR5E5RKU6/8ccS$2b$10$UpFxhnRGoeYF7L0OOWvr1.lNEHcDVds8Bg1tYJvkprcfKnjKll1XC', 'trabajador', 'Activo'),
-(5, 'CC', '1111111111', 'pepito perez', 'cal 1 # 2 4', '3131234568', 'pepito@gmail.com', '$2b$10$UpFxhnRGoeYF7L0OOWvr1.lNEHcDVds8Bg1tYJvkprcfKnjKll1XC', 'Admin', 'Activo');
+(2, 'CC', '1098765434', 'Maria Gomez', 'Carrera 5 # 10-20', '3001234570', 'mariagomez@gmail.com', '$2b$10$UpFxhnRGoeYF7L0OOWvr1.lNEHcDVds8Bg1tYJvkprcfKnjKll1XC', 'trabajador', 'Activo'),
+(3, 'CC', '1070971265', 'Guillermo Ortiz', 'cal 1 # 2 3', '3131234567', '123@gmail.com', '$2b$10$ZSP8AO5tx.qz06011YBoE..tye1.OrFdHfYx03WFR5E5RKU6/8ccS', 'trabajador', 'Activo'),
+(4, 'CC', '1111111111', 'Pepito Perez', 'cal 1 # 2 4', '3131234568', 'pepito@gmail.com', '$2b$10$UpFxhnRGoeYF7L0OOWvr1.lNEHcDVds8Bg1tYJvkprcfKnjKll1XC', 'admin', 'Activo'),
+(9, 'CC', '55555555', 'Admin Prueba', 'Calle 50 # 50-50', '5050505050', 'admin@gmail.com', '$2b$10$kKieJ3DDM4Z94neh2y2L/eYSYpfJEpurBg2xrtvrerI.GhET2qCqW', 'admin', 'Activo');
 
 --
 -- Índices para tablas volcadas
 --
 
 --
+-- Indices de la tabla `citas`
+--
+ALTER TABLE `citas`
+  ADD PRIMARY KEY (`idcita`),
+  ADD UNIQUE KEY `uq_citas_horario_activo` (`idhorario_activo`),
+  ADD KEY `idx_citas_cliente` (`idcliente`),
+  ADD KEY `idx_citas_horario` (`idhorario`);
+
+--
 -- Indices de la tabla `clientes`
 --
 ALTER TABLE `clientes`
-  ADD PRIMARY KEY (`idcliente`);
+  ADD PRIMARY KEY (`idcliente`),
+  ADD UNIQUE KEY `uq_clientes_correo` (`correo`),
+  ADD UNIQUE KEY `uq_clientes_documento` (`numeroDocumento`);
 
 --
 -- Indices de la tabla `horarios`
 --
 ALTER TABLE `horarios`
   ADD PRIMARY KEY (`idhorario`),
-  ADD KEY `idtrabajador` (`idtrabajador`);
+  ADD KEY `idx_horarios_trabajador` (`idtrabajador`);
 
 --
 -- Indices de la tabla `trabajadores`
 --
 ALTER TABLE `trabajadores`
-  ADD PRIMARY KEY (`idtrabajador`);
+  ADD PRIMARY KEY (`idtrabajador`),
+  ADD UNIQUE KEY `uq_trabajadores_correo` (`correo`),
+  ADD UNIQUE KEY `uq_trabajadores_documento` (`numeroDocumento`);
 
 --
 -- AUTO_INCREMENT de las tablas volcadas
 --
 
 --
+-- AUTO_INCREMENT de la tabla `citas`
+--
+ALTER TABLE `citas`
+  MODIFY `idcita` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT de la tabla `clientes`
 --
 ALTER TABLE `clientes`
-  MODIFY `idcliente` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `idcliente` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT de la tabla `horarios`
 --
 ALTER TABLE `horarios`
-  MODIFY `idhorario` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `idhorario` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT de la tabla `trabajadores`
 --
 ALTER TABLE `trabajadores`
-  MODIFY `idtrabajador` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `idtrabajador` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- Restricciones para tablas volcadas
 --
+
+--
+-- Filtros para la tabla `citas`
+--
+ALTER TABLE `citas`
+  ADD CONSTRAINT `citas_ibfk_1` FOREIGN KEY (`idcliente`) REFERENCES `clientes` (`idcliente`),
+  ADD CONSTRAINT `citas_ibfk_2` FOREIGN KEY (`idhorario`) REFERENCES `horarios` (`idhorario`);
 
 --
 -- Filtros para la tabla `horarios`

@@ -21,7 +21,9 @@ class LoginClienteControlador {
         return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
       }
 
-      res.json({ mensaje: 'Inicio de sesión exitoso', usuario: user });
+      const { contrasena, ...usuarioSinClave } = user;
+      res.json({ mensaje: 'Inicio de sesión exitoso', usuario: usuarioSinClave });
+      
     } catch (err) {
       res.status(500).json({ error: `Hubo un error al validar las credenciales: ${err.message}` });
     }

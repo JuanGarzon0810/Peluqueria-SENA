@@ -1,6 +1,6 @@
 const express = require('express');
-const LTRutas = require('../../controlador/trabajadores/LoginTrabajadorControlador');
-const HTRutas = require('../../controlador/trabajadores/ConsultarHorariosTrabajadorControlador');
+const LTRutas = require('../../controlador/Trabajadores/LoginTrabajadorControlador');
+const HTRutas = require('../../controlador/Trabajadores/ConsultarHorariosTrabajadorControlador');
 
 const router = express.Router();
 

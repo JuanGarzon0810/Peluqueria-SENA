@@ -18,7 +18,7 @@ class CrearAdminModelo {
             const contra = await bcrypt.hash(contras, salto);
 
             // Rol que tendrá el nuevo Admin
-            const rol = 'Admin';
+            const rol = 'admin';
 
             return await dbService.query(query, [
                 tipoD,

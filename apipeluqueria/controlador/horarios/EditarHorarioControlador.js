@@ -30,8 +30,23 @@ class EditarHorarioControlador {
         }
 
         try {
-            // Por ahora solo actualizamos. En el paso 4 agregamos las
-            // validaciones que consultan la base de datos.
+            // 5. El horario debe existir
+            const horario = await modelo.buscarPorId(idhorario);
+
+            if (!horario) {
+                return res.status(404).json({ error: 'El horario no existe.' });
+            }
+
+            // 6. No puede traslaparse con otro horario del mismo trabajador
+            const traslape = await modelo.existeTraslape(
+                horario.idtrabajador, fecha, horaInicio, horaFin, idhorario
+            );
+
+            if (traslape) {
+                return res.status(409).json({ error: 'El horario se cruza con otro horario del trabajador.' });
+            }
+
+            // 7. Actualizar
             await modelo.editarHorario(idhorario, fecha, horaInicio, horaFin);
 
             return res.json({ mensaje: 'Horario editado correctamente.' });
