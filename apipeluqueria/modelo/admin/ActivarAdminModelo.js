@@ -1,17 +1,21 @@
-const dbService = require('../bd/Conexion');
+const dbService = require("../bd/Conexion");
 
 class ActivarAdminModelo {
-    static async modificarEstado(id) {
-        // CORRECCIÓN: Igual que antes, cambiamos la tabla a 'trabajadores' y la columna a 'idtrabajador'
-        const query = 'UPDATE trabajadores SET estado = ? WHERE idtrabajador = ?';
+  static async modificarEstado(id) {
+    const query = `
+      UPDATE trabajadores
+      SET estado = 'Activo'
+      WHERE idtrabajador = ?
+        AND rol = 'admin'
+    `;
 
-        try {
-            // Nota que aquí le pasamos 'Activo'
-            return await dbService.query(query, ['Activo', id]); 
-        } catch (err) {
-            throw new Error(`Error al modificar el estado del admin: ${err.message}`);
-        }
+    try {
+      return await dbService.query(query, [id]);
+    } catch (err) {
+      console.error("Error al activar administrador:", err.message);
+      throw err;
     }
+  }
 }
 
 module.exports = ActivarAdminModelo;
