@@ -2,7 +2,15 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="description" content="Gestiona horarios, trabajadores, clientes y administradores de la peluquería." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#f7f2eb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f0518" media="(prefers-color-scheme: dark)" />
     <title>Panel de administración · Peluquería</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,13 +23,42 @@
   </head>
 
   <body data-rol="admin">
+    <a class="salto" href="#principal">Saltar al contenido</a>
+
     <header class="barra">
-      <div>
-        <strong id="nombre">…</strong><span class="rol" id="rol"></span>
+      <span class="barra-marca">
+        <span class="icono" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="6" cy="6" r="3"></circle>
+            <circle cx="6" cy="18" r="3"></circle>
+            <path d="M20 4 8.12 15.88"></path>
+            <path d="M14.47 14.48 20 20"></path>
+            <path d="M8.12 8.12 12 12"></path>
+          </svg>
+        </span>
+        <span class="barra-marca-texto">Peluquería</span>
+      </span>
+
+      <div class="usuario">
+        <span class="avatar" id="avatar" aria-hidden="true">…</span>
+        <span class="usuario-datos">
+          <strong id="nombre">…</strong>
+          <span class="rol" id="rol"></span>
+        </span>
+        <button type="button" class="btn sec" id="btnCerrarSesion" aria-label="Cerrar sesión">
+          <span class="icono" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <path d="m16 17 5-5-5-5"></path>
+              <path d="M21 12H9"></path>
+            </svg>
+          </span>
+          <span class="texto-salir">Cerrar sesión</span>
+        </button>
       </div>
-      <button class="btn sec" id="btnCerrarSesion">Cerrar sesión</button>
     </header>
-    <main class="agenda ancha">
+
+    <main class="agenda" id="principal" tabindex="-1">
       <h1 id="titulo">Administración</h1>
       <p class="sub" id="sub">Horarios, trabajadores, clientes y administradores.</p>
       <nav class="pestanas" id="pestanas" aria-label="Secciones"></nav>

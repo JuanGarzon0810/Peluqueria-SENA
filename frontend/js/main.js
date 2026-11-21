@@ -36,8 +36,26 @@ document.addEventListener("DOMContentLoaded", () => {
       aviso.className = "aviso " + tipo;
     };
 
-    const correo = el("input", { type: "email", id: "correo", placeholder: "nombre@correo.com", autocomplete: "username", required: true, value: correoNuevo });
-    const clave = el("input", { type: "password", id: "contrasena", autocomplete: "current-password", required: true });
+    const correo = el("input", {
+      type: "email",
+      id: "correo",
+      placeholder: "nombre@correo.com",
+      autocomplete: "username",
+      autocapitalize: "none",
+      spellcheck: "false",
+      inputmode: "email",
+      enterkeyhint: "next",
+      maxlength: 250,
+      required: true,
+      value: correoNuevo,
+    });
+    const clave = el("input", {
+      type: "password",
+      id: "contrasena",
+      autocomplete: "current-password",
+      enterkeyhint: "go",
+      required: true,
+    });
     const ver = el("button", { type: "button", "aria-pressed": "false" }, "Mostrar");
     ver.addEventListener("click", () => {
       const oculta = clave.type === "password";
@@ -58,7 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const boton = el("button", { type: "submit", class: "btn", id: "btnIngresar" }, "Ingresar");
     const form = el(
       "form",
-      { id: "loginForm", novalidate: true },
+      { id: "loginForm", novalidate: true, autocomplete: "on" },
       el("h2", null, "Iniciar sesión"),
       el("p", "sub", "Elige tu tipo de cuenta e ingresa tus datos."),
       grupo,
@@ -72,7 +90,15 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       const rol = form.elements.rol.value;
       const email = correo.value.trim();
-      if (!email || !clave.value) return msg("Escribe tu correo y tu contraseña.", "error");
+      if (!email || !clave.value) {
+        msg("Escribe tu correo y tu contraseña.", "error");
+        correo.setAttribute("aria-invalid", String(!email));
+        clave.setAttribute("aria-invalid", String(!clave.value));
+        (!email ? correo : clave).focus({ preventScroll: true });
+        return;
+      }
+      correo.removeAttribute("aria-invalid");
+      clave.removeAttribute("aria-invalid");
       await conCarga(boton, async () => {
         msg("Validando credenciales…", "cargando");
         const r = await api(LOGIN[rol].ruta, { method: "POST", body: { t1: email, t2: clave.value } });
@@ -96,7 +122,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
     cont.replaceChildren(form);
-    correo.focus();
+    // En pantallas pequeñas no movemos la vista al campo: se pierde el letrero de bienvenida.
+    if (window.matchMedia("(min-width: 641px)").matches) correo.focus();
+    else if (correoNuevo) correo.focus({ preventScroll: true });
   }
 
   /* ---------- Crear cuenta de cliente (RF-02) ---------- */
@@ -115,11 +143,12 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
+  const mostrar = (id) => document.getElementById("tab-" + id)?.click();
+
   pestanas(barra, panel, [
     { id: "ingresar", titulo: "Ingresar", render: pintarLogin },
     { id: "registro", titulo: "Crear cuenta", render: pintarRegistro },
   ]);
-  const mostrar = (id) => document.getElementById("tab-" + id).click();
 
   /* ---------- Configuración del servidor ---------- */
   const url = document.getElementById("urlApi");

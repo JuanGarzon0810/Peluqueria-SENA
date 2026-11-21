@@ -36,68 +36,94 @@ document.addEventListener("DOMContentLoaded", () => {
   async function cargar() {
     const miVersion = ++version;
     resumen.textContent = "";
-    lista.replaceChildren(el("p", "vacio", "Cargando horarios…"));
+    lista.setAttribute("aria-busy", "true");
+    lista.replaceChildren(esqueletoFilas(4));
+
     const fecha = fFecha.value;
     const est = fEstado.value;
 
     // RF-07: sirve para conocer el idhorario de cada fila (los endpoints RF-08 no lo traen)
     const idsPromesa = Horarios.deTrabajador(idTrabajador).catch(() => []);
 
-    // RF-08.2 (por fecha) o RF-08.1 (todos)
-    const r = fecha
-      ? await api(`/trabajador/horariod/${idTrabajador}&${encodeURIComponent(fecha)}`)
-      : await api(`/trabajador/horariot/${idTrabajador}`);
-    if (miVersion !== version) return;
-    if (!r.ok) {
-      const b = el("button", { type: "button", class: "btn sec" }, "Reintentar");
-      b.addEventListener("click", cargar);
-      lista.replaceChildren(el("div", "fallo", `No se pudieron cargar los horarios. ${r.error}`, el("br"), b));
-      return;
+    try {
+      // RF-08.2 (por fecha) o RF-08.1 (todos)
+      const r = fecha
+        ? await api(`/trabajador/horariod/${idTrabajador}&${encodeURIComponent(fecha)}`)
+        : await api(`/trabajador/horariot/${idTrabajador}`);
+      if (miVersion !== version) return;
+      if (!r.ok) {
+        lista.removeAttribute("aria-busy");
+        lista.replaceChildren(estadoError(r.error, cargar));
+        return;
+      }
+
+      let filas = Horarios.lista(r.datos);
+
+      // RF-08.3 (fecha + estado). Si el servidor no devuelve datos, se filtra en pantalla.
+      if (fecha && est) {
+        const r3 = await api(`/trabajador/horarioe/${idTrabajador}&${encodeURIComponent(fecha)}&${est}`);
+        const l3 = r3.ok ? Horarios.lista(r3.datos) : [];
+        if (l3.length) filas = l3;
+      }
+      if (miVersion !== version) return;
+      if (est) filas = filas.filter((h) => (est === "A" ? Horarios.disponible(h) : !Horarios.disponible(h)));
+
+      const conIds = new Map((await idsPromesa).map((h) => [Horarios.clave(h), h]));
+      if (miVersion !== version) return;
+      filas = filas.map((h) => ({ ...h, idTrabajador, id: conIds.get(Horarios.clave(h))?.id ?? null }));
+
+      const libres = filas.filter(Horarios.disponible).length;
+      const noDisponibles = filas.length - libres;
+      resumen.textContent = filas.length
+        ? [
+            `${numero(filas.length)} ${plural(filas.length, "horario", "horarios")}`,
+            `${numero(libres)} ${plural(libres, "disponible", "disponibles")}`,
+            `${numero(noDisponibles)} ${plural(noDisponibles, "no disponible", "no disponibles")}`,
+          ].join(" · ")
+        : "";
+
+      lista.removeAttribute("aria-busy");
+      pintarAgenda(lista, filas, {
+        tituloVacio: fecha || est ? "Sin resultados" : "Aún no tienes horarios",
+        iconoVacio: "calendario",
+        vacio: fecha || est
+          ? "No hay horarios que coincidan con la fecha o el estado elegido. Prueba a quitar los filtros."
+          : "Cuando la administración te asigne turnos, aparecerán aquí.",
+        trabajador: false,
+        acciones: (h) => {
+          const descripcion = `el horario del ${formatoDia(h.fecha)}, de ${formatoHora(h.horaInicio)} a ${formatoHora(h.horaFinal)}`;
+          const ed = el("button", { type: "button", class: "btn sec pequeno" }, "Editar");
+          const borrar = el("button", { type: "button", class: "btn peligro pequeno" }, "Eliminar");
+          ed.setAttribute("aria-label", `Editar ${descripcion}`);
+          borrar.setAttribute("aria-label", `Eliminar ${descripcion}`);
+          if (!h.id) {
+            [ed, borrar].forEach((b) => {
+              b.disabled = true;
+              b.title = "No se pudo identificar este horario. Pulsa «Ver todos» para recargar.";
+            });
+            ed.setAttribute("aria-label", "Editar no disponible: no se pudo identificar el horario");
+            borrar.setAttribute("aria-label", "Eliminar no disponible: no se pudo identificar el horario");
+          }
+          ed.addEventListener("click", () => editar(h));
+          borrar.addEventListener("click", () => eliminar(h, borrar));
+          return [ed, borrar];
+        },
+      });
+    } catch (e) {
+      if (miVersion !== version) return;
+      lista.removeAttribute("aria-busy");
+      lista.replaceChildren(estadoError(e.message || "No se pudieron cargar los horarios.", cargar));
     }
-    let filas = Horarios.lista(r.datos);
-
-    // RF-08.3 (fecha + estado). Si el servidor no devuelve datos, se filtra en pantalla.
-    if (fecha && est) {
-      const r3 = await api(`/trabajador/horarioe/${idTrabajador}&${encodeURIComponent(fecha)}&${est}`);
-      const l3 = r3.ok ? Horarios.lista(r3.datos) : [];
-      if (l3.length) filas = l3;
-    }
-    if (est) filas = filas.filter((h) => (est === "A" ? Horarios.disponible(h) : !Horarios.disponible(h)));
-
-    const conIds = new Map((await idsPromesa).map((h) => [Horarios.clave(h), h]));
-    if (miVersion !== version) return;
-    filas = filas.map((h) => ({ ...h, idTrabajador, id: conIds.get(Horarios.clave(h))?.id ?? null }));
-
-    const libres = filas.filter(Horarios.disponible).length;
-    const noDisponibles = filas.length - libres;
-    resumen.textContent = filas.length
-      ? `${filas.length} ${filas.length === 1 ? "horario" : "horarios"}: ${libres} ${libres === 1 ? "disponible" : "disponibles"} y ${noDisponibles} ${noDisponibles === 1 ? "no disponible" : "no disponibles"}.`
-      : "";
-
-    pintarAgenda(lista, filas, {
-      vacio: fecha || est ? "No hay horarios con ese filtro." : "Todavía no tienes horarios asignados.",
-      trabajador: false,
-      acciones: (h) => {
-        const ed = el("button", { type: "button", class: "btn sec pequeno" }, "Editar");
-        const el2 = el("button", { type: "button", class: "btn peligro pequeno" }, "Eliminar");
-        if (!h.id) {
-          [ed, el2].forEach((b) => {
-            b.disabled = true;
-            b.title = "No se pudo identificar este horario. Pulsa «Ver todos» para recargar.";
-          });
-        }
-        ed.addEventListener("click", () => editar(h));
-        el2.addEventListener("click", () => eliminar(h, el2));
-        return [ed, el2];
-      },
-    });
   }
 
   function editar(h) {
     formularioHorario(h, {
       guardar: (c) =>
         api(`/trabajador/horarios/${h.id}`, { method: "PUT", body: { idtrabajador: idTrabajador, ...c } }),
-      alExito: cargar,
+      alExito: () => {
+        Horarios.invalidar();
+        cargar();
+      },
     });
   }
 
@@ -111,6 +137,7 @@ document.addEventListener("DOMContentLoaded", () => {
     await conCarga(boton, async () => {
       const r = await api(`/trabajador/horarios/${h.id}?idtrabajador=${idTrabajador}`, { method: "DELETE" });
       if (!r.ok) return toast(r.error, "error");
+      Horarios.invalidar();
       toast(r.datos.mensaje || "Horario eliminado correctamente.");
       cargar();
     });

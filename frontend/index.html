@@ -2,9 +2,15 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="description" content="Accede a los horarios, turnos y la gestión de tu peluquería." />
-    <meta name="theme-color" content="#0f0518" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#f7f2eb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f0518" media="(prefers-color-scheme: dark)" />
     <title>Iniciar sesión · Peluquería</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,7 +23,9 @@
   </head>
 
   <body>
-    <main class="acceso">
+    <a class="salto" href="#principal">Saltar al contenido</a>
+
+    <main class="acceso" id="principal" tabindex="-1">
       <section class="letrero" aria-labelledby="titulo-marca">
         <div class="decoracion-fondo" aria-hidden="true"></div>
         <div class="letrero-contenido">
@@ -38,7 +46,7 @@
           <div class="pestanas pestanas-acceso" id="pestanasAcceso" role="tablist" aria-label="Tipo de acceso"></div>
 
           <div id="panelAcceso" class="panel-dinamico" role="tabpanel" aria-live="polite">
-            <noscript><p class="aviso err">Activa JavaScript para iniciar sesión.</p></noscript>
+            <noscript><p class="aviso error">Activa JavaScript para iniciar sesión.</p></noscript>
           </div>
 
           <details class="servidor">

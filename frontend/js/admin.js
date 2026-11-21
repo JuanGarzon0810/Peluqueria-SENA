@@ -105,25 +105,27 @@ document.addEventListener("DOMContentLoaded", () => {
     function llenarSelect(seleccionado) {
       selTrab.replaceChildren(
         el("option", { value: "" }, "Todos los trabajadores"),
-        ...[...conocidos].sort((a, b) => a[0] - b[0]).map(([id, n]) => el("option", { value: id }, `${n || "Trabajador"} (ID ${id})`)),
+        ...[...conocidos]
+          .sort((a, b) => a[0] - b[0])
+          .map(([id, n]) => el("option", { value: id }, `${n || "Trabajador"} (ID ${id})`)),
       );
       selTrab.value = conocidos.has(Number(seleccionado)) ? String(seleccionado) : "";
     }
 
     let version = 0;
-    async function cargar() {
+    async function cargar(forzar = false) {
       const miVersion = ++version;
       resumen.textContent = "";
-      lista.replaceChildren(el("p", "vacio", "Cargando horarios…"));
+      lista.setAttribute("aria-busy", "true");
+      lista.replaceChildren(esqueletoFilas(4));
       const sel = selTrab.value;
       try {
         // RF-07 si hay un trabajador elegido; si no, todos (RF-06 con respaldo por RF-07)
-        todos = sel ? await Horarios.deTrabajador(sel) : await Horarios.todos();
+        todos = sel ? await Horarios.deTrabajador(sel) : await Horarios.todos({ forzar });
       } catch (e) {
         if (miVersion !== version) return;
-        const b = el("button", { type: "button", class: "btn sec" }, "Reintentar");
-        b.addEventListener("click", cargar);
-        lista.replaceChildren(el("div", "fallo", `No se pudieron cargar los horarios. ${e.message}`, el("br"), b));
+        lista.removeAttribute("aria-busy");
+        lista.replaceChildren(estadoError(e.message || "No se pudieron cargar los horarios.", () => cargar(true)));
         return;
       }
       if (miVersion !== version) return;
@@ -134,6 +136,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!admins.has(h.idTrabajador)) Registro.poner("trabajador", { id: h.idTrabajador, nombre: h.trabajador });
       });
       llenarSelect(sel);
+      lista.removeAttribute("aria-busy");
       pintar();
     }
 
@@ -143,43 +146,58 @@ document.addEventListener("DOMContentLoaded", () => {
       if (fEstado.value) l = l.filter((h) => h.estado.toLowerCase() === fEstado.value);
       const libres = l.filter(Horarios.disponible).length;
       resumen.textContent = l.length
-        ? `${l.length} ${l.length === 1 ? "horario" : "horarios"}: ${libres} ${libres === 1 ? "disponible" : "disponibles"} y ${l.length - libres} ${l.length - libres === 1 ? "no disponible" : "no disponibles"}.`
+        ? [
+            `${numero(l.length)} ${plural(l.length, "horario", "horarios")}`,
+            `${numero(libres)} ${plural(libres, "disponible", "disponibles")}`,
+            `${numero(l.length - libres)} ${plural(l.length - libres, "no disponible", "no disponibles")}`,
+          ].join(" · ")
         : "";
       pintarAgenda(lista, l, {
-        vacio: todos.length ? "No hay horarios con ese filtro." : "Aún no hay horarios registrados.",
+        tituloVacio: todos.length ? "Sin resultados" : "Aún no hay horarios",
+        iconoVacio: "calendario",
+        vacio: todos.length
+          ? "No hay horarios que coincidan con el trabajador, la fecha o el estado elegido."
+          : "Cuando se registren horarios, aparecerán aquí agrupados por día.",
         trabajador: true,
         acciones: (h) => {
+          const descripcion = `el horario de ${h.trabajador || "este trabajador"}, del ${formatoDia(h.fecha)}, de ${formatoHora(h.horaInicio)} a ${formatoHora(h.horaFinal)}`;
           const ed = el("button", { type: "button", class: "btn sec pequeno" }, "Editar");
-          const bo = el("button", { type: "button", class: "btn peligro pequeno" }, "Eliminar");
+          const borrar = el("button", { type: "button", class: "btn peligro pequeno" }, "Eliminar");
+          ed.setAttribute("aria-label", `Editar ${descripcion}`);
+          borrar.setAttribute("aria-label", `Eliminar ${descripcion}`);
           ed.addEventListener("click", () =>
             formularioHorario(h, {
               admin: true,
               guardar: (c) => api(`/seguridad/horarios/${h.id}`, { method: "PUT", body: c }),
-              alExito: cargar,
+              alExito: () => {
+                Horarios.invalidar();
+                cargar(true);
+              },
             }),
           );
-          bo.addEventListener("click", async () => {
+          borrar.addEventListener("click", async () => {
             const ok = await confirmar(
               "Eliminar horario",
               `¿Eliminar el horario de ${h.trabajador || "este trabajador"} del ${formatoDia(h.fecha)}, ${formatoHora(h.horaInicio)} a ${formatoHora(h.horaFinal)}?`,
               { boton: "Eliminar", peligro: true },
             );
             if (!ok) return;
-            await conCarga(bo, async () => {
+            await conCarga(borrar, async () => {
               const r = await api(`/seguridad/horarios/${h.id}`, { method: "DELETE" });
               if (!r.ok) return toast(r.error, "error");
+              Horarios.invalidar();
               toast(r.datos.mensaje || "Horario eliminado correctamente.");
-              cargar();
+              cargar(true);
             });
           });
-          return [ed, bo];
+          return [ed, borrar];
         },
       });
     }
 
-    selTrab.addEventListener("change", cargar);
+    selTrab.addEventListener("change", () => cargar());
     [fFecha, fEstado].forEach((c) => c.addEventListener("change", pintar));
-    btnAct.addEventListener("click", cargar);
+    btnAct.addEventListener("click", () => cargar(true));
     llenarSelect("");
     cargar();
   }
@@ -189,11 +207,38 @@ document.addEventListener("DOMContentLoaded", () => {
     return (cont) => {
       const cfg = TIPOS[tipo];
       const tabla = el("div", "tabla-caja");
+      const resumen = el("p", { class: "resumen", "aria-live": "polite" });
+      const conteo = el("span", "conteo-dia", "0");
+      const buscar = el("input", {
+        type: "search",
+        id: "buscar-" + tipo,
+        placeholder: "Nombre, correo o ID",
+        autocomplete: "off",
+        spellcheck: "false",
+        enterkeyhint: "search",
+        "aria-label": `Buscar ${cfg.titulo.toLowerCase()} conocidos`,
+      });
+      const cabecera = el(
+        "div",
+        "tarjeta-cab",
+        el("h2", null, `${cfg.titulo} conocidos`, conteo),
+        el(
+          "div",
+          "campo campo-buscar",
+          el("label", { class: "sr-only", for: buscar.id }, `Buscar ${cfg.singular}`),
+          buscar,
+        ),
+      );
+      let filtro = "";
 
       async function accion(id, que, boton) {
-        if (!Number.isInteger(id) || id < 1) return toast("Escribe un ID válido (número entero positivo).", "error");
+        if (!Number.isInteger(id) || id < 1)
+          return toast("Escribe un ID válido (número entero positivo).", "error");
         if (tipo === "admin" && id === miId && que !== "activar")
-          return toast(`No puedes ${que === "eliminar" ? "eliminar" : "desactivar"} tu propia cuenta.`, "error");
+          return toast(
+            `No puedes ${que === "eliminar" ? "eliminar" : "desactivar"} tu propia cuenta.`,
+            "error",
+          );
         if (que === "eliminar") {
           const ok = await confirmar(
             `Eliminar ${cfg.singular}`,
@@ -219,12 +264,23 @@ document.addEventListener("DOMContentLoaded", () => {
         alExito: (r, body) => {
           Registro.poner(tipo, { id: r.datos.id, nombre: body.t3, correo: body.t6, estado: "Activo" });
           toast(`${mayus(cfg.singular)} creado con el ID ${r.datos.id}.`);
+          filtro = "";
+          buscar.value = "";
           dibujar();
         },
       });
 
       /* Gestionar por ID */
-      const entradaId = el("input", { type: "number", min: "1", id: "idGestion-" + tipo, inputmode: "numeric", placeholder: "Ej. 3" });
+      const entradaId = el("input", {
+        type: "number",
+        min: "1",
+        id: "idGestion-" + tipo,
+        inputmode: "numeric",
+        placeholder: "Ej. 3",
+        autocomplete: "off",
+        spellcheck: "false",
+        enterkeyhint: "done",
+      });
       const botones = [
         ["activar", "Activar", "btn sec"],
         ["desactivar", "Desactivar", "btn sec"],
@@ -235,32 +291,74 @@ document.addEventListener("DOMContentLoaded", () => {
         return b;
       });
 
+      const gestion = el(
+        "form",
+        { novalidate: true },
+        el("p", "ayuda", `Activa, desactiva o elimina un ${cfg.singular} escribiendo su número de ID.`),
+        el("div", "campo", el("label", { for: entradaId.id }, `ID del ${cfg.singular}`), entradaId),
+        el("div", "acciones-fila", botones),
+      );
+      gestion.addEventListener("submit", (e) => e.preventDefault());
+
       cont.append(
         el(
           "div",
           "rejilla-2",
           el("section", "tarjeta", el("h2", null, `Crear ${cfg.singular}`), formCrear),
-          el(
-            "section",
-            "tarjeta",
-            el("h2", null, "Gestionar por ID"),
-            el("p", "ayuda", `Activa, desactiva o elimina un ${cfg.singular} escribiendo su número de ID.`),
-            el("div", "campo", el("label", { for: entradaId.id }, `ID del ${cfg.singular}`), entradaId),
-            el("div", "acciones-fila", botones),
-          ),
+          el("section", "tarjeta", el("h2", null, "Gestionar por ID"), gestion),
         ),
-        el("section", "tarjeta", el("h2", null, `${cfg.titulo} conocidos`), tabla),
+        el("section", "tarjeta", cabecera, resumen, tabla),
       );
+
+      buscar.addEventListener("input", () => {
+        filtro = buscar.value.trim().toLowerCase();
+        dibujar();
+      });
+
+      function coincide(r) {
+        if (!filtro) return true;
+        return [r.id, r.nombre, r.correo, r.estado]
+          .filter((v) => v != null)
+          .some((v) => String(v).toLowerCase().includes(filtro));
+      }
 
       function dibujar() {
         const regs = Registro.lista(tipo);
+        const visibles = regs.filter(coincide);
+
+        conteo.textContent = numero(regs.length);
+        conteo.setAttribute(
+          "aria-label",
+          `${regs.length} ${plural(regs.length, cfg.singular, cfg.titulo.toLowerCase())}`,
+        );
+        resumen.textContent = regs.length
+          ? filtro
+            ? `${numero(visibles.length)} de ${numero(regs.length)} ${plural(regs.length, cfg.singular, cfg.titulo.toLowerCase())}`
+            : `${numero(regs.length)} ${plural(regs.length, cfg.singular, cfg.titulo.toLowerCase())}`
+          : "";
+
         if (!regs.length) {
           tabla.replaceChildren(
-            el("p", "vacio", `Aún no hay ${cfg.titulo.toLowerCase()} registrados en este navegador. Crea uno o gestiona por ID.`),
+            estadoVacio(
+              "equipo",
+              `Aún no hay ${cfg.titulo.toLowerCase()}`,
+              "Crea uno desde el formulario o añade su ID en «Gestionar por ID».",
+            ),
           );
           return;
         }
-        const filas = regs.map((r) => {
+        if (!visibles.length) {
+          tabla.replaceChildren(
+            estadoVacio(
+              "buscar",
+              "Sin coincidencias",
+              `No hay ${cfg.titulo.toLowerCase()} que coincidan con «${buscar.value.trim()}». Prueba con otro nombre, correo o ID.`,
+            ),
+          );
+          return;
+        }
+
+        const filas = visibles.map((r) => {
           const acc = el("div", "acciones-fila");
           [
             ["activar", "Activar", "btn sec pequeno", r.estado !== "Activo"],
@@ -269,27 +367,42 @@ document.addEventListener("DOMContentLoaded", () => {
           ].forEach(([que, texto, clase, mostrar]) => {
             if (!mostrar) return;
             const b = el("button", { type: "button", class: clase }, texto);
+            b.setAttribute(
+              "aria-label",
+              `${texto} al ${cfg.singular} ${r.id}${r.nombre ? ` (${r.nombre})` : ""}`,
+            );
             b.addEventListener("click", () => accion(r.id, que, b));
             acc.append(b);
           });
           const est = r.estado
             ? el("span", "estado " + (r.estado === "Activo" ? "disponible" : "cancelado"), r.estado)
             : el("span", "estado", "sin consultar");
+          const nombre = (r.nombre || "—") + (tipo === "admin" && r.id === miId ? " (tú)" : "");
           return el(
             "tr",
             null,
-            el("td", null, String(r.id)),
-            el("td", null, (r.nombre || "—") + (tipo === "admin" && r.id === miId ? " (tú)" : "")),
-            el("td", null, r.correo || "—"),
-            el("td", null, est),
-            el("td", null, acc),
+            el("td", { "data-label": "ID" }, String(r.id)),
+            el("td", { "data-label": "Nombre" }, nombre),
+            el("td", { "data-label": "Correo" }, r.correo || "—"),
+            el("td", { "data-label": "Estado" }, est),
+            el("td", { "data-label": "Acciones" }, acc),
           );
         });
         tabla.replaceChildren(
           el(
             "table",
             "tabla",
-            el("thead", null, el("tr", null, ["ID", "Nombre", "Correo", "Estado", "Acciones"].map((t) => el("th", { scope: "col" }, t)))),
+            el(
+              "thead",
+              null,
+              el(
+                "tr",
+                null,
+                ["ID", "Nombre", "Correo", "Estado", "Acciones"].map((t) =>
+                  el("th", { scope: "col" }, t),
+                ),
+              ),
+            ),
             el("tbody", null, filas),
           ),
         );

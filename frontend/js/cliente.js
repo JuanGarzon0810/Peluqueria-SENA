@@ -35,12 +35,6 @@ document.addEventListener("DOMContentLoaded", () => {
     },
   };
 
-  function cajaError(msg, reintentar) {
-    const b = el("button", { type: "button", class: "btn sec" }, "Reintentar");
-    b.addEventListener("click", reintentar);
-    return el("div", "fallo", `No se pudieron cargar los horarios. ${msg}`, el("br"), b);
-  }
-
   /* ================= Horarios disponibles ================= */
   function pintarHorarios(cont) {
     let todos = [];
@@ -48,6 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fFecha = el("input", { type: "date", id: "fFecha" });
     const chkPasados = el("input", { type: "checkbox", id: "fPasados" });
     const btnAct = el("button", { type: "button", class: "btn sec" }, "Actualizar");
+    const resumen = el("p", { class: "resumen", "aria-live": "polite" });
     const lista = el("div", { id: "listaHorarios" });
 
     cont.append(
@@ -59,23 +54,28 @@ document.addEventListener("DOMContentLoaded", () => {
         el("div", "campo check", chkPasados, el("label", { for: "fPasados" }, "Mostrar horarios que ya pasaron")),
         btnAct,
       ),
+      resumen,
       lista,
     );
 
     let versionCarga = 0;
-    async function cargar() {
+    async function cargar(forzar = false) {
       const miVersion = ++versionCarga;
-      lista.replaceChildren(el("p", "vacio", "Cargando horarios…"));
+      resumen.textContent = "";
+      lista.setAttribute("aria-busy", "true");
+      lista.replaceChildren(esqueletoFilas(4));
       try {
-        const resultado = await Horarios.todos();
+        const resultado = await Horarios.todos({ forzar });
         if (miVersion !== versionCarga) return;
         todos = resultado;
       } catch (e) {
         if (miVersion !== versionCarga) return;
-        lista.replaceChildren(cajaError(e.message, cargar));
+        lista.removeAttribute("aria-busy");
+        lista.replaceChildren(estadoError(e.message, () => cargar(true)));
         return;
       }
       if (miVersion !== versionCarga) return;
+
       const previo = selTrab.value;
       const trabajadores = new Map();
       todos.filter(Horarios.disponible).forEach((h) => trabajadores.set(h.idTrabajador, h.trabajador));
@@ -84,6 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ...[...trabajadores].map(([id, n]) => el("option", { value: id }, n || `Trabajador ${id}`)),
       );
       selTrab.value = trabajadores.has(Number(previo)) ? previo : "";
+      lista.removeAttribute("aria-busy");
       pintar();
     }
 
@@ -93,18 +94,30 @@ document.addEventListener("DOMContentLoaded", () => {
       let l = chkPasados.checked ? libres : libres.filter((h) => !Horarios.esPasado(h));
       if (selTrab.value) l = l.filter((h) => String(h.idTrabajador) === selTrab.value);
       if (fFecha.value) l = l.filter((h) => h.fecha === fFecha.value);
+
+      if (l.length) {
+        resumen.textContent = `${numero(l.length)} ${plural(l.length, "horario disponible", "horarios disponibles")}`;
+      } else {
+        resumen.textContent = "";
+      }
+
       let vacio = "No hay horarios disponibles por ahora. Vuelve a revisar más tarde.";
       if (!l.length && pasados && !chkPasados.checked) {
-        const cantidad = pasados === 1 ? "Hay 1 horario disponible con fecha vencida" : `Hay ${pasados} horarios disponibles con fecha vencida`;
-        vacio += ` ${cantidad}. Puedes mostrarlos con «Mostrar horarios que ya pasaron».`;
+        vacio = `Hay ${numero(pasados)} ${plural(pasados, "horario disponible", "horarios disponibles")} con fecha vencida. Activa «Mostrar horarios que ya pasaron» para verlos.`;
       }
+
       pintarAgenda(lista, l, {
+        tituloVacio: "Sin horarios disponibles",
         vacio,
         trabajador: true,
         estado: false,
         acciones: (h) => {
-          if (Horarios.esPasado(h)) return [el("span", "estado", "ya pasó")];
+          if (Horarios.esPasado(h)) return [el("span", "estado reservado", "ya pasó")];
           const b = el("button", { type: "button", class: "btn pequeno" }, "Reservar");
+          b.setAttribute(
+            "aria-label",
+            `Reservar el ${formatoDia(h.fecha)} a las ${formatoHora(h.horaInicio)} con ${h.trabajador || "el trabajador"}`,
+          );
           b.addEventListener("click", () => reservar(h, b));
           return [b];
         },
@@ -125,12 +138,18 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         if (!r.ok) {
           toast(r.error, "error");
-          if (r.status === 409) await cargar(); // el horario ya no estaba libre
+          if (r.status === 409) {
+            Horarios.invalidar();
+            await cargar(true); // el horario ya no estaba libre
+          }
           return;
         }
         const idCita = Number(r.datos.idCita);
         if (!Number.isInteger(idCita) || idCita < 1) {
-          toast("El servidor confirmó la operación, pero no devolvió un número de cita válido. Actualiza la lista antes de volver a reservar.", "error");
+          toast(
+            "El servidor confirmó la operación, pero no devolvió un número de cita válido. Actualiza la lista antes de volver a reservar.",
+            "error",
+          );
           return;
         }
         Citas.agregar({
@@ -143,29 +162,41 @@ document.addEventListener("DOMContentLoaded", () => {
           horaFinal: h.horaFinal,
           estado: "Activa",
         });
-        toast(`Cita #${r.datos.idCita} reservada correctamente. La encuentras en «Mis citas».`);
-        await cargar();
+        Horarios.invalidar();
+        toast(`Cita #${idCita} reservada. La encuentras en «Mis citas».`);
+        await cargar(true);
       });
     }
 
     [selTrab, fFecha, chkPasados].forEach((c) => c.addEventListener("change", pintar));
-    btnAct.addEventListener("click", cargar);
+    btnAct.addEventListener("click", () => cargar(true));
     cargar();
   }
 
   /* ================= Mis citas ================= */
   function pintarCitas(cont) {
-    const entrada = el("input", { type: "number", min: "1", id: "idCitaNueva", placeholder: "Ej. 5", inputmode: "numeric" });
+    const entrada = el("input", {
+      type: "number",
+      min: "1",
+      id: "idCitaNueva",
+      placeholder: "Ej. 5",
+      inputmode: "numeric",
+    });
     const btnAdd = el("button", { type: "submit", class: "btn sec" }, "Agregar");
     const form = el(
       "form",
       { class: "herramientas", novalidate: true },
       el("div", "campo", el("label", { for: "idCitaNueva" }, "Número de una cita existente"), entrada),
       btnAdd,
-      el("p", "ayuda ancho", "Los números añadidos manualmente se guardan solo en este navegador y no se verifican con el servidor."),
+      el(
+        "p",
+        "ayuda",
+        "Los números añadidos manualmente se guardan solo en este navegador y no se verifican con el servidor.",
+      ),
     );
+    const resumen = el("p", { class: "resumen", "aria-live": "polite" });
     const lista = el("div", { class: "citas" });
-    cont.append(form, lista);
+    cont.append(form, resumen, lista);
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -177,107 +208,172 @@ document.addEventListener("DOMContentLoaded", () => {
       dibujar();
     });
 
+    const peso = (c) => (c.estado === "Activa" ? 0 : c.estado === "Sin verificar" ? 1 : 2);
+
     function dibujar() {
-      const citas = Citas.leer().sort((a, b) => b.idCita - a.idCita);
+      const citas = Citas.leer().sort(
+        (a, b) =>
+          peso(a) - peso(b) ||
+          String(a.fecha || "").localeCompare(String(b.fecha || "")) ||
+          a.idCita - b.idCita,
+      );
+
+      const activas = citas.filter((c) => c.estado === "Activa").length;
+      const canceladas = citas.filter((c) => c.estado === "Cancelada").length;
+      resumen.textContent = citas.length
+        ? [
+            `${numero(activas)} ${plural(activas, "activa", "activas")}`,
+            canceladas ? `${numero(canceladas)} ${plural(canceladas, "cancelada", "canceladas")}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : "";
+
       if (!citas.length) {
         lista.replaceChildren(
-          el("p", "vacio", "No hay citas guardadas en este navegador. Reserva una desde «Horarios disponibles» o añade el número de una cita existente."),
+          estadoVacio(
+            "calendario",
+            "Todavía no tienes citas",
+            "Reserva una desde «Horarios disponibles» o añade el número de una cita existente.",
+          ),
         );
         return;
       }
       lista.replaceChildren(...citas.map(tarjeta));
     }
 
-    function tarjeta(c) {
+    function tarjeta(c, i) {
       const activa = c.estado === "Activa";
       const sinVerificar = c.estado === "Sin verificar";
       const detalle = c.fecha
         ? el("div", null, `${formatoDia(c.fecha)} · ${formatoHora(c.horaInicio)} a ${formatoHora(c.horaFinal)}`)
-        : el("div", "ayuda", sinVerificar ? "No se ha comprobado en el servidor que esta cita exista." : "No hay detalles guardados para esta cita.");
+        : el(
+            "div",
+            "ayuda",
+            sinVerificar
+              ? "No se ha comprobado en el servidor que esta cita exista."
+              : "No hay detalles guardados para esta cita.",
+          );
       const acciones = el("div", "acciones-fila");
       if (activa) {
         const rep = el("button", { type: "button", class: "btn sec pequeno" }, "Reprogramar");
         const can = el("button", { type: "button", class: "btn peligro pequeno" }, "Cancelar cita");
+        rep.setAttribute("aria-label", `Reprogramar la cita ${c.idCita}`);
+        can.setAttribute("aria-label", `Cancelar la cita ${c.idCita}`);
         rep.addEventListener("click", () => reprogramar(c));
         can.addEventListener("click", () => cancelar(c, can));
         acciones.append(rep, can);
       }
       const quitar = el("button", { type: "button", class: "btn sec pequeno" }, "Quitar de la lista");
+      quitar.setAttribute("aria-label", `Quitar la cita ${c.idCita} de la lista de este navegador`);
       quitar.addEventListener("click", () => {
         Citas.quitar(c.idCita);
         dibujar();
       });
       acciones.append(quitar);
-      return el(
+
+      const card = el(
         "article",
         "cita " + (activa ? "activa" : c.estado === "Cancelada" ? "cancelada" : "sin-verificar"),
-        el("div", "cita-info", el("strong", null, `Cita #${c.idCita}`), detalle, c.trabajador ? el("div", null, `con ${c.trabajador}`) : null),
-        el("span", "estado " + (activa ? "disponible" : c.estado === "Cancelada" ? "cancelado" : "sin-verificar"), activa ? "Activa" : c.estado === "Cancelada" ? "Cancelada" : "Sin verificar"),
+        el(
+          "div",
+          "cita-info",
+          el("strong", null, `Cita #${c.idCita}`),
+          detalle,
+          c.trabajador ? el("div", null, `con ${c.trabajador}`) : null,
+        ),
+        el(
+          "span",
+          "estado " + (activa ? "disponible" : c.estado === "Cancelada" ? "cancelado" : "sin-verificar"),
+          activa ? "Activa" : c.estado === "Cancelada" ? "Cancelada" : "Sin verificar",
+        ),
         acciones,
       );
+      card.style.setProperty("--i", String(Math.min(i, 7)));
+      return card;
     }
 
     async function cancelar(c, boton) {
-      const ok = await confirmar("Cancelar cita", `¿Cancelar la cita #${c.idCita}? El horario quedará libre para otros clientes.`, {
-        boton: "Sí, cancelar",
-        peligro: true,
-      });
+      const ok = await confirmar(
+        "Cancelar cita",
+        `¿Cancelar la cita #${c.idCita}? El horario quedará libre para otros clientes.`,
+        { boton: "Sí, cancelar", peligro: true },
+      );
       if (!ok) return;
       await conCarga(boton, async () => {
         const r = await api(`/citas/${c.idCita}/cancelar`, { method: "PUT", body: { idcliente: idCliente } });
         if (!r.ok) return toast(r.error, "error");
         Citas.cambiar(c.idCita, { estado: "Cancelada" });
+        Horarios.invalidar();
         toast(r.datos.mensaje || "Cita cancelada correctamente.");
         dibujar();
       });
     }
 
     async function reprogramar(c) {
-      const cuerpo = el("div", "modal-cuerpo", el("p", "vacio", "Cargando horarios…"));
+      const cuerpo = el("div", "modal-cuerpo");
       const dlg = modal(`Reprogramar cita #${c.idCita}`, cuerpo);
-      let todos;
-      try {
-        todos = await Horarios.todos();
-      } catch (e) {
-        cuerpo.replaceChildren(el("p", "fallo", e.message));
-        return;
+
+      async function cargarHorarios() {
+        cuerpo.replaceChildren(esqueletoFilas(3));
+        let todos;
+        try {
+          todos = await Horarios.todos();
+        } catch (e) {
+          cuerpo.replaceChildren(estadoError(e.message, cargarHorarios));
+          return;
+        }
+        let l = todos.filter((h) => Horarios.disponible(h) && !Horarios.esPasado(h) && h.id !== c.idHorario);
+        if (c.idTrabajador) l = l.filter((h) => h.idTrabajador === c.idTrabajador);
+        const caja = el("div", "lista-modal");
+        pintarAgenda(caja, l, {
+          tituloVacio: "No hay otros horarios libres",
+          vacio: c.idTrabajador
+            ? "No hay otros horarios disponibles con el mismo trabajador."
+            : "Prueba con otra fecha o vuelve a revisar más tarde.",
+          trabajador: !c.idTrabajador,
+          estado: false,
+          acciones: (h) => {
+            const b = el("button", { type: "button", class: "btn pequeno" }, "Elegir");
+            b.setAttribute(
+              "aria-label",
+              `Elegir el ${formatoDia(h.fecha)} a las ${formatoHora(h.horaInicio)} con ${h.trabajador || "el trabajador"}`,
+            );
+            b.addEventListener("click", () =>
+              conCarga(b, async () => {
+                const r = await api(`/citas/${c.idCita}/reprogramar`, {
+                  method: "PUT",
+                  body: { idcliente: idCliente, idhorario: h.id },
+                });
+                if (!r.ok) return toast(r.error, "error");
+                Citas.cambiar(c.idCita, {
+                  idHorario: h.id,
+                  idTrabajador: h.idTrabajador,
+                  trabajador: h.trabajador,
+                  fecha: String(dato(r.datos.cita, "fecha") ?? h.fecha).slice(0, 10),
+                  horaInicio: dato(r.datos.cita, "horaInicio") ?? h.horaInicio,
+                  horaFinal: dato(r.datos.cita, "horaFinal") ?? h.horaFinal,
+                });
+                Horarios.invalidar();
+                dlg.close();
+                toast(r.datos.mensaje || "Cita reprogramada correctamente.");
+                dibujar();
+              }),
+            );
+            return [b];
+          },
+        });
+        cuerpo.replaceChildren(
+          el(
+            "p",
+            "ayuda",
+            "Solo puedes cambiar a un horario libre del mismo trabajador, con al menos una hora de anticipación.",
+          ),
+          caja,
+        );
       }
-      let l = todos.filter((h) => Horarios.disponible(h) && !Horarios.esPasado(h) && h.id !== c.idHorario);
-      if (c.idTrabajador) l = l.filter((h) => h.idTrabajador === c.idTrabajador);
-      const caja = el("div", "lista-modal");
-      pintarAgenda(caja, l, {
-        vacio: "No hay otros horarios libres con el mismo trabajador.",
-        trabajador: !c.idTrabajador,
-        estado: false,
-        acciones: (h) => {
-          const b = el("button", { type: "button", class: "btn pequeno" }, "Elegir");
-          b.addEventListener("click", () =>
-            conCarga(b, async () => {
-              const r = await api(`/citas/${c.idCita}/reprogramar`, {
-                method: "PUT",
-                body: { idcliente: idCliente, idhorario: h.id },
-              });
-              if (!r.ok) return toast(r.error, "error");
-              Citas.cambiar(c.idCita, {
-                idHorario: h.id,
-                idTrabajador: h.idTrabajador,
-                trabajador: h.trabajador,
-                fecha: String(dato(r.datos.cita, "fecha") ?? h.fecha).slice(0, 10),
-                horaInicio: dato(r.datos.cita, "horaInicio") ?? h.horaInicio,
-                horaFinal: dato(r.datos.cita, "horaFinal") ?? h.horaFinal,
-              });
-              dlg.close();
-              toast(r.datos.mensaje || "Cita reprogramada correctamente.");
-              dibujar();
-            }),
-          );
-          return [b];
-        },
-      });
-      cuerpo.replaceChildren(
-        el("p", "ayuda", "Solo puedes cambiar a un horario libre del mismo trabajador, con al menos una hora de anticipación."),
-        caja,
-      );
+
+      await cargarHorarios();
     }
 
     dibujar();
@@ -306,14 +402,20 @@ document.addEventListener("DOMContentLoaded", () => {
         "section",
         "tarjeta zona-peligro",
         el("h2", null, "Desactivar cuenta"),
-        el("p", null, "Si desactivas tu cuenta ya no podrás ingresar ni reservar citas. Solo la administración puede volver a activarla."),
+        el(
+          "p",
+          null,
+          "Si desactivas tu cuenta ya no podrás ingresar ni reservar citas. Solo la administración puede volver a activarla.",
+        ),
         btn,
       ),
     );
     btn.addEventListener("click", async () => {
       const activas = Citas.leer().filter((c) => c.estado === "Activa").length;
-      const extra = activas ? " Si tienes citas activas, comprueba su estado y cancélalas antes si ya no las necesitas." : "";
-      const ok = await confirmar("Desactivar cuenta", "¿Seguro que quieres desactivar tu cuenta?" + extra, {
+      const extra = activas
+        ? " Si tienes citas activas, comprueba su estado y cancélalas antes si ya no las necesitas."
+        : "";
+      const ok = await confirmar("Desactivar cuenta", `¿Seguro que quieres desactivar tu cuenta?${extra}`, {
         boton: "Sí, desactivar",
         peligro: true,
       });

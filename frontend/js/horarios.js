@@ -5,6 +5,7 @@
 
 // Hasta qué ID de trabajador se consulta cuando GET /horarios no existe.
 const MAX_ID_SONDEO = 40;
+const VIGENCIA_CACHE_HORARIOS = 30000; // 30 s
 
 /* ---------- Horas (en la BD son texto: "7:00 am", "12:00 m", "3:00 pm") ---------- */
 function aMinutos(t) {
@@ -18,11 +19,13 @@ function aMinutos(t) {
   if (m[3] === "pm") h += 12;
   return h * 60 + +m[2];
 }
+
 function aHHMM(t) {
   const n = aMinutos(t);
   if (n === null) return "";
   return String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
 }
+
 function formatoHora(t) {
   const n = aMinutos(t);
   if (n === null) return String(t ?? "");
@@ -31,10 +34,18 @@ function formatoHora(t) {
   if (h === 12 && mm === "00") return "12:00 m";
   return `${h % 12 === 0 ? 12 : h % 12}:${mm} ${h < 12 ? "a. m." : "p. m."}`;
 }
+
 function formatoDia(f) {
   const [y, m, d] = String(f).slice(0, 10).split("-").map(Number);
-  if (!y) return String(f);
-  const t = new Date(y, m - 1, d).toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  if (!y || !m || !d) return String(f);
+  const fecha = new Date(y, m - 1, d);
+  if (Number.isNaN(fecha.getTime())) return String(f);
+  const t = fecha.toLocaleDateString("es-CO", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
@@ -51,6 +62,13 @@ function validarJornada(inicio, final) {
 
 /* ---------- Modelo ---------- */
 const Horarios = {
+  _cache: { datos: null, vez: 0 },
+
+  invalidar() {
+    this._cache.datos = null;
+    this._cache.vez = 0;
+  },
+
   // Unifica los nombres de campo que devuelven los distintos endpoints
   normalizar(h) {
     return {
@@ -63,22 +81,28 @@ const Horarios = {
       estado: String(dato(h, "estado", "estadoRegistro") ?? "Activo"),
     };
   },
+
   lista(datos) {
     const l = datos?.horarios ?? datos?.datos ?? (Array.isArray(datos) ? datos : []);
     return Array.isArray(l) ? l.map((h) => this.normalizar(h)) : [];
   },
+
   disponible: (h) => h.estado.toLowerCase() === "activo",
+
   inicio(h) {
     const [y, m, d] = h.fecha.split("-").map(Number);
     const min = aMinutos(h.horaInicio);
-    if (!y || min === null) return null;
+    if (!y || !m || !d || min === null) return null;
     return new Date(y, m - 1, d, Math.floor(min / 60), min % 60);
   },
+
   esPasado(h) {
     const d = this.inicio(h);
     return d ? d.getTime() <= Date.now() : false;
   },
+
   clave: (h) => `${h.fecha}|${aMinutos(h.horaInicio)}|${aMinutos(h.horaFinal)}`,
+
   orden: (a, b) =>
     a.fecha.localeCompare(b.fecha) || (aMinutos(a.horaInicio) ?? 0) - (aMinutos(b.horaInicio) ?? 0),
 
@@ -91,18 +115,31 @@ const Horarios = {
 
   // RF-06: GET /horarios. Si esa ruta no existe en el servidor, se reúnen los
   // horarios consultando RF-07 para cada trabajador.
-  async todos() {
+  async todos({ forzar = false } = {}) {
+    const ahora = Date.now();
+    if (!forzar && this._cache.datos && ahora - this._cache.vez < VIGENCIA_CACHE_HORARIOS) {
+      return [...this._cache.datos];
+    }
+
     const r = await api("/horarios");
     if (r.ok) {
       const l = this.lista(r.datos);
-      if (l.every((h) => h.id && h.idTrabajador)) return l.sort(this.orden);
+      if (l.every((h) => h.id && h.idTrabajador)) {
+        const ordenados = l.sort(this.orden);
+        this._cache = { datos: ordenados, vez: Date.now() };
+        return [...ordenados];
+      }
     }
     if (r.status === 0) throw new Error(r.error);
+
     const ids = Array.from({ length: MAX_ID_SONDEO }, (_, i) => i + 1);
     const res = await Promise.allSettled(ids.map((id) => this.deTrabajador(id)));
     const ok = res.filter((p) => p.status === "fulfilled");
     if (!ok.length) throw new Error(res[0].reason?.message || "No se pudieron consultar los horarios.");
-    return ok.flatMap((p) => p.value).sort(this.orden);
+
+    const ordenados = ok.flatMap((p) => p.value).sort(this.orden);
+    this._cache = { datos: ordenados, vez: Date.now() };
+    return [...ordenados];
   },
 };
 
@@ -113,23 +150,54 @@ function etiquetaEstado(h, textoLibre = "disponible", textoOcupado = "no disponi
 }
 
 /* Lista agrupada por día.
-   opciones: { vacio, trabajador (mostrar nombre), estado (mostrar etiqueta), acciones(h) → nodos[] } */
-function pintarAgenda(cont, lista, { vacio, trabajador = false, estado = true, acciones } = {}) {
+   opciones: { vacio, tituloVacio, iconoVacio, trabajador, estado, acciones(h) → nodos[] } */
+function pintarAgenda(
+  cont,
+  lista,
+  {
+    vacio,
+    tituloVacio = "Sin horarios para mostrar",
+    iconoVacio = "calendario",
+    trabajador = false,
+    estado = true,
+    acciones,
+  } = {},
+) {
   if (!lista.length) {
-    cont.replaceChildren(el("p", "vacio", vacio || "No hay horarios para mostrar."));
+    cont.replaceChildren(estadoVacio(iconoVacio, tituloVacio, vacio || "No hay horarios para mostrar."));
     return;
   }
+
   const grupos = {};
   [...lista].sort(Horarios.orden).forEach((h) => (grupos[h.fecha] ||= []).push(h));
+
+  let indice = 0;
   cont.replaceChildren(
     ...Object.keys(grupos)
       .sort()
       .map((f) => {
-        const s = el("section", "dia", el("h2", null, formatoDia(f)));
-        grupos[f].forEach((h) => {
-          const hora = el("div", "hora", formatoHora(h.horaInicio), el("small", null, `hasta ${formatoHora(h.horaFinal)}`));
+        const grupo = grupos[f];
+        const s = el(
+          "section",
+          "dia",
+          el("h2", null, formatoDia(f), el("span", "conteo-dia", String(grupo.length))),
+        );
+        grupo.forEach((h) => {
+          const hora = el(
+            "div",
+            "hora",
+            formatoHora(h.horaInicio),
+            el("small", null, `hasta ${formatoHora(h.horaFinal)}`),
+          );
           const info = el("div", "info", trabajador ? `con ${h.trabajador || "—"}` : "");
-          const turno = el("div", "turno", hora, info, estado ? etiquetaEstado(h) : el("span"));
+          const turno = el(
+            "div",
+            "turno",
+            hora,
+            info,
+            estado ? etiquetaEstado(h) : el("span"),
+          );
+          turno.style.setProperty("--i", String(Math.min(indice++, 7)));
           const acc = acciones ? acciones(h) : [];
           if (acc && acc.length) turno.append(el("div", "acciones-fila", acc));
           s.append(turno);
@@ -164,7 +232,11 @@ function formularioHorario(h, { admin = false, guardar, alExito }) {
     campo(fecha.id, "Fecha", fecha),
     el("div", "fila-2", campo(ini.id, "Hora de inicio", ini), campo(fin.id, "Hora final", fin)),
     estado ? campo(estado.id, "Estado del horario", estado) : null,
-    el("p", "ayuda", "Jornada: 7:00 a. m. a 9:00 p. m. (última cita a las 8:00 p. m.), sin horarios de 12:00 m. a 1:00 p. m."),
+    el(
+      "p",
+      "ayuda",
+      "Jornada: 7:00 a. m. a 9:00 p. m. (última cita a las 8:00 p. m.), sin horarios de 12:00 m. a 1:00 p. m.",
+    ),
     aviso,
     el("div", "acciones", no, ok),
   );
@@ -185,6 +257,7 @@ function formularioHorario(h, { admin = false, guardar, alExito }) {
         aviso.textContent = r.error;
         return;
       }
+      Horarios.invalidar();
       dlg.close();
       toast(r.datos.mensaje || "Horario actualizado correctamente.");
       if (alExito) alExito(r);
